@@ -50,8 +50,8 @@ impl PdfGeneratorError {
     }
 }
 
-pub fn register_errors(py: Python, m: &PyModule) -> PyResult<()> {
-    m.add("PdfError", py.get_type::<PyException>())?;
-    m.add("PdfGeneratorError", py.get_type::<PdfGeneratorError>())?;
+pub fn register_errors(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("PdfError", m.py().get_type_bound::<PyException>())?;
+    m.add("PdfGeneratorError", m.py().get_type_bound::<PdfGeneratorError>())?;
     Ok(())
 }

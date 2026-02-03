@@ -1,130 +1,84 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-
 use crate::error::PdfError;
 use crate::options::PdfOptions;
-use headless_chrome::{Browser, LaunchOptions};
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
-use std::sync::Arc;
+use crate::browser::{get_pooled_tab, recycle_tab};
 use base64::{Engine as _, engine::general_purpose};
+use rayon::prelude::*;
 
-static BROWSER: Lazy<Mutex<Option<Arc<Browser>>>> = Lazy::new(|| Mutex::new(None));
-
-fn get_browser() -> Result<Arc<Browser>, PdfError> {
-    let mut browser_guard = BROWSER.lock().map_err(|_| PdfError::BrowserError("Failed to lock browser mutex".to_string()))?;
-
-    if let Some(browser) = browser_guard.as_ref() {
-        return Ok(browser.clone())
-    }
-
-    let launch_options = LaunchOptions {
-        idle_browser_timeout: std::time::Duration::from_secs(300),
-        ..Default::default()
-    };
-
-    let browser = Browser::new(launch_options)
-        .map_err(|e| PdfError::BrowserError(e.to_string()))?;
-
-    let browser = Arc::new(browser);
-    *browser_guard = Some(browser.clone());
-
-    Ok(browser)
-}
-
-pub fn convert_html_to_pdf(html: &str, options: &PdfOptions) -> Result<Vec<u8>, PdfError> {
+// Internal function for single PDF conversion
+fn convert_single_pdf(html: &str, options: &PdfOptions) -> Result<Vec<u8>, PdfError> {
     if html.trim().is_empty() {
         return Err(PdfError::EmptyHtml);
     }
 
     // Encode HTML to base64
-    let base64_html = general_purpose::STANDARD.encode(html);
-    let data_url = format!("data:text/html;base64,{}", base64_html);
+    let html_base64 = general_purpose::STANDARD.encode(html);
+    let data_url = format!("data:text/html;base64,{}", html_base64);
 
-    // Get browser instance
-    let browser = get_browser()?;
+    let tab = get_pooled_tab()?;
 
-    // Create new browser context (incognito/isolated)
-    let context = browser.new_context()
-        .map_err(|e| PdfError::BrowserError(format!("Failed to create browser context: {}", e)))?;
+    // Navigate to data URI
+    if let Err(e) = tab.navigate_to(&data_url) {
+        // If navigation fails, the tab might be dead, Don't recycle it
+        return Err(PdfError::BrowserError(format!("Navigation failed: {}", e)));
+    }
 
-    // Open tab in the new context
-    let tab = context.new_tab()
-        .map_err(|e| PdfError::BrowserError(format!("Failed to create browser tab: {}", e)))?;
-
-    // Navigate to data URL
-    tab.navigate_to(&data_url)
-        .map_err(|e| PdfError::BrowserError(e.to_string()))?;
+    // Wait for content load
+    if let Err(e) = tab.wait_for_element("body") {
+        // If wait for body fails, Don't recycle it
+        return Err(PdfError::BrowserError(format!("Wait for body failed: {}", e)));
+    }
 
     // Print to PDF
     let chrome_options = options.to_chrome_options();
-    let pdf_data = tab.print_to_pdf(Some(chrome_options))
-        .map_err(|e| PdfError::BrowserError(e.to_string()))?;
+    let result = tab.print_to_pdf(Some(chrome_options));
 
-    Ok(pdf_data)
-}
-
-#[pyclass]
-pub struct HtmlToPdfConverter {
-    options: PdfOptions,
-}
-
-#[pymethods]
-impl HtmlToPdfConverter {
-    #[new]
-    #[pyo3(signature = (options = None))]
-    fn new(options: Option<PdfOptions>) -> Self {
-        Self {
-            options: options.unwrap_or_default(),
+    match result {
+        Ok(pdf_data) => {
+            recycle_tab(tab);
+            Ok(pdf_data)
+        }
+        Err(e) => {
+            Err(PdfError::BrowserError(e.to_string()))
         }
     }
-
-    fn convert(&self, html: &str) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
-            // Release GIL during heavy conversion
-            let pdf_data = py.allow_threads(|| {
-                convert_html_to_pdf(html, &self.options)
-            })?;
-            Ok(PyBytes::new(py, &pdf_data).into())
-        })
-    }
-
-    #[getter]
-    fn options(&self) -> PdfOptions {
-        self.options.clone()
-    }
-
-    #[setter]
-    fn set_options(&mut self, options: PdfOptions) {
-        self.options = options;
-    }
-
 }
 
 #[pyfunction]
-fn  html_to_pdf(html: &str) -> PyResult<PyObject> {
+fn html_to_pdf(html: &str, options: &PdfOptions) -> PyResult<PyObject> {
     Python::with_gil(|py| {
-        let options = PdfOptions::default();
         let pdf_data = py.allow_threads(|| {
-            convert_html_to_pdf(html, &options)
+            convert_single_pdf(html, options)
         })?;
-        Ok(PyBytes::new(py, &pdf_data).into())
+        Ok(PyBytes::new_bound(py, &pdf_data).into())
     })
 }
 
 #[pyfunction]
-fn html_to_pdf_with_options(html: &str, options: &PdfOptions) -> PyResult<PyObject> {
+fn html_to_pdf_batch(requests: Vec<(String, PdfOptions)>) -> PyResult<Vec<PyObject>> {
     Python::with_gil(|py| {
-        let pdf_data = py.allow_threads(|| {
-            convert_html_to_pdf(html, options)
-        })?;
-        Ok(PyBytes::new(py, &pdf_data).into())
+        // Release GIL and process in parallel
+        let results: Vec<Result<Vec<u8>, PdfError>> = py.allow_threads(|| {
+            requests.into_par_iter()
+                .map(|(html, options)| {
+                    convert_single_pdf(&html, &options)
+                })
+                .collect()
+        });
+
+        let mut py_objects = Vec::with_capacity(results.len());
+        for res in results {
+            let pdf_data = res
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _> (e.to_string()))?;
+            py_objects.push(PyBytes::new_bound(py, &pdf_data).into());
+        }
+        Ok(py_objects)
     })
 }
 
-pub fn register_converter(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn register_converter(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(html_to_pdf, m)?)?;
-    m.add_function(wrap_pyfunction!(html_to_pdf_with_options, m)?)?;
-    m.add_class::<HtmlToPdfConverter>()?;
+    m.add_function(wrap_pyfunction!(html_to_pdf_batch, m)?)?;
     Ok(())
 }

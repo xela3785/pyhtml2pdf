@@ -41,7 +41,7 @@ pub struct PdfOptions {
 impl PdfOptions {
     #[new]
     #[pyo3(signature = (**kwargs))]
-    fn new(kwargs: Option<&PyDict>) -> PyResult<Self> {
+    fn new(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
         let mut options = Self::default();
         options.print_background = true; // Default to true
 
@@ -127,7 +127,7 @@ impl PdfOptions {
 }
 
 
-pub fn register_options(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn register_options(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PdfOptions>()?;
     Ok(())
 }
