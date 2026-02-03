@@ -1,0 +1,16 @@
+[build-system]
+requires  = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pyhtml2pdf"
+version = "0.1.0"
+description = "HTML to PDF converter using Rust"
+authors = [{name = "Alexey Likhtental", email = "xela3785@gmail.com"}]
+requires-python = ">=3.8"
+dependencies = []
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "pyhtml2pdf._pyhtml2pdf"
