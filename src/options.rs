@@ -3,42 +3,67 @@ use serde::{Deserialize, Serialize};
 use pyo3::types::PyDict;
 use headless_chrome::types::PrintToPdfOptions;
 
+/// Options for PDF generation.
+///
+/// This struct allows you to configure various aspects of the PDF output,
+/// such as page size, margins, and orientation.
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[pyclass(get_all, set_all)]
 pub struct PdfOptions {
+    /// Page size (e.g., "A4", "Letter", "Legal", "Tabloid", "A3", "A5").
+    /// Default is "A4".
     #[pyo3()]
-    pub page_size: Option<String>, // "A4", "Letter", etc.
+    pub page_size: Option<String>,
 
+    /// Page orientation ("Portrait" or "Landscape").
+    /// Default is "Portrait".
     #[pyo3()]
-    pub page_orientation: Option<String>, // "Portrait", "Landscape"
+    pub page_orientation: Option<String>,
 
+    /// Top margin (e.g., "1cm", "0.5in").
     #[pyo3()]
     pub margin_top: Option<String>,
 
+    /// Right margin (e.g., "1cm", "0.5in").
     #[pyo3()]
     pub margin_right: Option<String>,
 
+    /// Bottom margin (e.g., "1cm", "0.5in").
     #[pyo3()]
     pub margin_bottom: Option<String>,
 
+    /// Left margin (e.g., "1cm", "0.5in").
     #[pyo3()]
     pub margin_left: Option<String>,
 
+    /// HTML content for the header.
     #[pyo3()]
     pub header_html: Option<String>,
 
+    /// HTML content for the footer.
     #[pyo3()]
     pub footer_html: Option<String>,
     
+    /// Scale factor for the page rendering.
+    /// Default is 1.0.
     #[pyo3()]
     pub scale: Option<f64>,
     
+    /// Whether to print background graphics.
+    /// Default is true.
     #[pyo3()]
     pub print_background: bool,
 }
 
 #[pymethods]
 impl PdfOptions {
+    /// Create a new PdfOptions instance.
+    ///
+    /// Args:
+    ///     **kwargs: Keyword arguments to set options directly.
+    ///               Available keys: page_size, page_orientation, margin_top, 
+    ///               margin_right, margin_bottom, margin_left, header_html, 
+    ///               footer_html, scale, print_background.
     #[new]
     #[pyo3(signature = (**kwargs))]
     fn new(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {

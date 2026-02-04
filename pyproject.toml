@@ -10,6 +10,9 @@ authors = [{name = "Alexey Likhtental", email = "xela3785@gmail.com"}]
 requires-python = ">=3.8"
 dependencies = []
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"

@@ -45,6 +45,17 @@ fn convert_single_pdf(html: &str, options: &PdfOptions) -> Result<Vec<u8>, PdfEr
     }
 }
 
+/// Convert a single HTML string to PDF.
+///
+/// Args:
+///     html (str): The HTML content to convert.
+///     options (PdfOptions): Options for PDF generation.
+///
+/// Returns:
+///     bytes: The generated PDF data as bytes.
+///
+/// Raises:
+///     PdfError: If conversion fails.
 #[pyfunction]
 fn html_to_pdf(html: &str, options: &PdfOptions) -> PyResult<PyObject> {
     Python::with_gil(|py| {
@@ -55,6 +66,16 @@ fn html_to_pdf(html: &str, options: &PdfOptions) -> PyResult<PyObject> {
     })
 }
 
+/// Convert a batch of HTML strings to PDF in parallel.
+///
+/// Args:
+///     requests (List[Tuple[str, PdfOptions]]): A list of (html, options) tuples.
+///
+/// Returns:
+///     List[bytes]: A list of generated PDF data as bytes, corresponding to the input list.
+///
+/// Raises:
+///     PdfError: If any conversion fails.
 #[pyfunction]
 fn html_to_pdf_batch(requests: Vec<(String, PdfOptions)>) -> PyResult<Vec<PyObject>> {
     Python::with_gil(|py| {
