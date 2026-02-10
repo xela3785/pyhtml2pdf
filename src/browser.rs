@@ -53,10 +53,30 @@ pub fn get_pooled_tab() -> Result<Arc<Tab>, PdfError> {
 
     // If pool empty, create new
     let browser = get_browser()?;
-    let tab = browser.new_tab()
-        .map_err(|e| PdfError::BrowserError(format!("Failed to create new tab: {}", e)))?;
+    match browser.new_tab() {
+        Ok(tab) => Ok(tab),
+        Err(e) => {
+            eprintln!("Failed to create new tab: {}. Restarting browser...", e);
+            
+            {
+                let mut browser_guard = BROWSER.lock().unwrap();
+                if let Some(current_browser) = browser_guard.as_ref() {
+                    // Check if the browser we tried to use is still the current one
+                    if Arc::ptr_eq(&browser, current_browser) {
+                        *browser_guard = None;
+                        // Clear the pool as well since it contains tabs from the dead browser
+                        let mut pool = TAB_POOL.lock().unwrap();
+                        pool.clear();
+                    }
+                }
+            }
 
-    Ok(tab)
+            // Get a fresh browser and try again
+            let browser = get_browser()?;
+            browser.new_tab()
+                .map_err(|e| PdfError::BrowserError(format!("Failed to create new tab after restart: {}", e)))
+        }
+    }
 }
 
 pub fn recycle_tab(tab: Arc<Tab>) {
